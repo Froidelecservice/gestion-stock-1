@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Gestion de Stock FES/FCM</title>
+
+<!-- jsPDF pour export PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<!-- SheetJS pour Excel -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<script>
+if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("service-worker.js");
+}
+</script>
+
+<style>
+    :root {
+        --bg: #f5f5f5;
+        --fg: #000000;
+        --card: #ffffff;
+        --header: #005A9C;
+        --header-text: #ffffff;
+        --alert: #ffcccc;
+        --btn-primary: #005A9C;
+        --btn-warning: #ff9800;
+        --btn-pdf: #673ab7;
+        --btn-save: #28a745;
+        --btn-delete: #d9534f;
+        --btn-entree: #4caf50;
+        --btn-sortie: #f44336;
+        --btn-modifier: #777777;
+    }
+
+    body.dark {
+        --bg: #121212;
+        --fg: #f5f5f5;
+        --card: #1e1e1e;
+        --header: #1565c0;
+        --header-text: #ffffff;
+        --alert: #5c1f1f;
+    }
+
+    body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        background: var(--bg);
+        color: var(--fg);
+        transition: background 0.3s, color 0.3s;
+    }
+
+    h2 { margin-bottom: 10px; font-size: 26px; }
+
+    .top-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+
+    .btn {
+        padding: 14px 24px;
+        font-size: 18px;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        color: #ffffff;
+    }
+
+    #btnAdd { background: var(--btn-primary); }
+    #btnOrder { background: var(--btn-warning); }
+    #btnPDF { background: var(--btn-pdf); }
+    #btnExportCSV { background: #3f51b5; }
+    #btnReset { background: var(--btn-delete); }
+    #btnFullscreen { background: #009688; }
+    #btnImport { background: #6a1b9a; }
+    #btnDownloadModel { background: #0277bd; }
+
+    form {
+        background: var(--card);
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: none;
+    }
+
+    .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+
+    .field { flex: 1; display: flex; flex-direction: column; min-width: 150px; }
+
+    label { font-size: 14px; margin-bottom: 3px; }
+
+    input {
+        padding: 10px;
+        font-size: 16px;
+        border-radius: 4px;
+        border: 1px solid #999;
+        box-sizing: border-box;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--card);
+        font-size: 15px;
+    }
+
+    th, td {
+        border: 1px solid #ccc;
+        padding: 8px;
+        text-align: center;
+    }
+
+    th {
+        background: var(--header);
+        color: var(--header-text);
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .alert { background: var(--alert); }
+
+    .btn-small {
+        padding: 12px 18px;
+        font-size: 18px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        color: #ffffff;
+        margin: 2px 0;
+        width: 100%;
+    }
+
+    .btn-entree { background: var(--btn-entree); }
+    .btn-sortie { background: var(--btn-sortie); }
+    .btn-delete { background: var(--btn-delete); }
+    .btn-modifier { background: var(--btn-modifier); }
+
+    #btnSave {
+        background: var(--btn-save);
+        color: #ffffff;
+        border: none;
+        margin-top: 10px;
+    }
+
+    .search-bar {
+        margin-bottom: 10px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .search-bar input { flex: 1; }
+</style>
+</head>
+
+<body>
+
+<h2>Gestion de Stock — FES/FCM</h2>
+
+<div class="top-bar">
+    <button id="btnAdd" class="btn">➕ Ajouter</button>
+    <button id="btnOrder" class="btn">📦 À commander</button>
+    <button id="btnPDF" class="btn">📝 PDF</button>
+    <button id="btnExportCSV" class="btn">📄 Export CSV</button>
+    <button id="btnImport" class="btn">📥 Importer</button>
+    <button id="btnDownloadModel" class="btn">⬇️ Modèle CSV</button>
+    <button id="btnReset" class="btn">🗑️ Reset</button>
+    <button id="btnFullscreen" class="btn">⛶ Plein écran</button>
+</div>
+
+<input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none;">
+
+<div class="search-bar">
+    <label>🔍 Recherche :</label>
+    <input type="text" id="search" placeholder="Référence, fournisseur, machine...">
+</div>
+
+<form id="formStock">
+    <h3 id="formTitle">Nouvel article</h3>
+
+    <div class="row">
+        <div class="field"><label>Fournisseur</label><input name="fournisseur"></div>
+        <div class="field"><label>Machine</label><input name="machine"></div>
+        <div class="field"><label>Marque</label><input name="marque"></div>
+    </div>
+
+    <div class="row">
+        <div class="field"><label>Matériel</label><input name="materiel"></div>
+        <div class="field"><label>Référence</label><input name="reference"></div>
+        <div class="field"><label>Dénomination</label><input name="denomination"></div>
+    </div>
+
+    <div class="row">
+        <div class="field"><label>Stock début mois</label><input type="number" name="debut" value="0"></div>
+        <div class="field"><label>Entrées</label><input type="number" name="entrees" value="0"></div>
+        <div class="field"><label>Sorties</label><input type="number" name="sorties" value="0"></div>
+        <div class="field"><label>Stock minimum</label><input type="number" name="minimum" value="0"></div>
+    </div>
+
+    <button type="button" id="btnSave">💾 Enregistrer</button>
+</form>
+
+<table id="tableStock">
+    <thead>
+    <tr>
+        <th>FOURNISSEUR</th>
+        <th>MACHINE</th>
+        <th>MARQUE</th>
+        <th>MATERIEL</th>
+        <th>REFERENCE</th>
+        <th>DENOMINATION</th>
+        <th>DEBUT</th>
+        <th>ENTREES</th>
+        <th>SORTIES</th>
+        <th>STOCK FIN</th>
+        <th>MIN</th>
+        <th>ENTRÉE</th>
+        <th>SORTIE</th>
+        <th>MODIFIER</th>
+        <th>SUPPRIMER</th>
+    </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+
+<script>
+/* --- STOCK --- */
+let stock = JSON.parse(localStorage.getItem("stockData") || "[]");
+let indexEnEdition = null;
+
+function sauvegarder() {
+    localStorage.setItem("stockData", JSON.stringify(stock));
+}
+
+function stockFin(item) {
+    return item.debut + item.entrees - item.sorties;
+}
+
+/* --- MODE SOMBRE AUTO --- */
+function appliqueModeSombreAuto() {
+    const h = new Date().getHours();
+    if (h >= 18 || h < 7) document.body.classList.add("dark");
+    else document.body.classList.remove("dark");
+}
+
+/* --- FILTRE --- */
+function filtrerStock(txt) {
+    txt = txt.toLowerCase();
+    return stock.filter(item =>
+        Object.values(item).join(" ").toLowerCase().includes(txt)
+    );
+}
+
+/* --- AFFICHAGE --- */
+function afficher() {
+    const tbody = document.querySelector("#tableStock tbody");
+    tbody.innerHTML = "";
+
+    const filtre = document.getElementById("search").value || "";
+    const liste = filtrerStock(filtre);
+
+    liste.forEach(item => {
+        const index = stock.indexOf(item);
+        const fin = stockFin(item);
+        const alertClass = fin < item.minimum ? "alert" : "";
+
+        tbody.innerHTML += `
+        <tr class="${alertClass}">
+            <td>${item.fournisseur}</td>
+            <td>${item.machine}</td>
+            <td>${item.marque}</td>
+            <td>${item.materiel}</td>
+            <td>${item.reference}</td>
+            <td>${item.denomination}</td>
+            <td>${item.debut}</td>
+            <td>${item.entrees}</td>
+            <td>${item.sorties}</td>
+            <td>${fin}</td>
+            <td>${item.minimum}</td>
+            <td><button class="btn-small btn-entree" onclick="ajouterEntree(${index})">Entrée +</button></td>
+            <td><button class="btn-small btn-sortie" onclick="ajouterSortie(${index})">Sortie −</button></td>
+            <td><button class="btn-small btn-modifier" onclick="modifierArticle(${index})">Modifier</button></td>
+            <td><button class="btn-small btn-delete" onclick="supprimer(${index})">❌</button></td>
+        </tr>`;
+    });
+}
+
+/* --- FORMULAIRE --- */
+function resetForm() {
+    document.getElementById("formStock").reset();
+    document.getElementById("formStock").style.display = "none";
+    indexEnEdition = null;
+}
+
+function remplirForm(item) {
+    const f = document.getElementById("formStock");
+    f.fournisseur.value = item.fournisseur;
+    f.machine.value = item.machine;
+    f.marque.value = item.marque;
+    f.materiel.value = item.materiel;
+    f.reference.value = item.reference;
+    f.denomination.value = item.denomination;
+    f.debut.value = item.debut;
+    f.entrees.value = item.entrees;
+    f.sorties.value = item.sorties;
+    f.minimum.value = item.minimum;
+}
+
+/* --- SUPPRESSION --- */
+function supprimer(index) {
+    if (!confirm("Supprimer cet article ?")) return;
+    stock.splice(index, 1);
+    sauvegarder();
+    afficher();
+}
+
+/* --- ENTREE / SORTIE --- */
+function ajouterEntree(index) {
+    const q = Number(prompt("Quantité entrée :"));
+    if (q > 0) {
+        stock[index].entrees += q;
+        sauvegarder();
+        afficher();
+    }
+}
+
+function ajouterSortie(index) {
+    const q = Number(prompt("Quantité sortie :"));
+    if (q > 0) {
+        stock[index].sorties += q;
+        sauvegarder();
+        afficher();
+    }
+}
+
+/* --- MODIFIER --- */
+function modifierArticle(index) {
+    indexEnEdition = index;
+    remplirForm(stock[index]);
+    document.getElementById("formStock").style.display = "block";
+    document.getElementById("formTitle").textContent = "Modifier l’article";
+}
+
+/* --- AJOUT --- */
+document.getElementById("btnAdd").onclick = () => {
+    indexEnEdition = null;
+    document.getElementById("formTitle").textContent = "Nouvel article";
+    document.getElementById("formStock").reset();
+    document.getElementById("formStock").style.display = "block";
+};
+
+/* --- SAUVEGARDE --- */
+document.getElementById("btnSave").onclick = () => {
+    const f = document.getElementById("formStock");
+    const data = Object.fromEntries(new FormData(f).entries());
+
+    const item = {
+        fournisseur: data.fournisseur,
+        machine: data.machine,
+        marque: data.marque,
+        materiel: data.materiel,
+        reference: data.reference,
+        denomination: data.denomination,
+        debut: Number(data.debut),
+        entrees: Number(data.entrees),
+        sorties: Number(data.sorties),
+        minimum: Number(data.minimum)
+    };
+
+    if (indexEnEdition === null) stock.push(item);
+    else stock[indexEnEdition] = item;
+
+    sauvegarder();
+    afficher();
+    resetForm();
+};
+
+/* --- ARTICLES À COMMANDER --- */
+document.getElementById("btnOrder").onclick = () => {
+    const articles = stock.filter(a => stockFin(a) < a.minimum);
+
+    if (articles.length === 0) {
+        alert("Aucun article à commander.");
+        return;
+    }
+
+    let message = "📦 ARTICLES À COMMANDER :\n\n";
+
+    articles.forEach(a => {
+        const qte = prompt(
+            `Quantité à commander pour ${a.reference} - ${a.denomination} :`,
+            a.qteCommande ? String(a.qteCommande) : "1"
+        );
+
+        const val = Number(qte);
+        a.qteCommande = val > 0 ? val : 0;
+
+        message += `${a.reference} | ${a.denomination} | À commander : ${a.qteCommande}\n`;
+    });
+
+    sauvegarder();
+    alert(message);
+};
+
+/* --- PDF --- */
+document.getElementById("btnPDF").onclick = () => {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF();
+
+    const articles = stock.filter(a => stockFin(a) < a.minimum);
+
+    if (articles.length === 0) {
+        alert("Aucun article à commander.");
+        return;
+    }
+
+    pdf.setFontSize(18);
+    pdf.text("Articles à commander — FES/FCM", 20, 20);
+
+    let y = 40;
+    pdf.setFontSize(12);
+
+    articles.forEach(a => {
+        if (y > 270) {
+            pdf.addPage();
+            y = 20;
+        }
+
+        const qte = a.qteCommande && a.qteCommande > 0 ? a.qteCommande : 0;
+
+        pdf.text(`${a.reference} - ${a.denomination}`, 20, y);
+        y += 6;
+
+        pdf.text(
+            `Stock : ${stockFin(a)} | Min : ${a.minimum} | À commander : ${qte}`,
+            20, y
+        );
+        y += 10;
+    });
+
+    pdf.save("commande_fes_fcm.pdf");
+};
+
+/* --- EXPORT CSV --- */
+document.getElementById("btnExportCSV").onclick = () => {
+    let csv = "Fournisseur;Machine;Marque;Materiel;Reference;Denomination;Debut;Entrees;Sorties;StockFin;Minimum\n";
+
+    stock.forEach(a => {
+        csv += `${a.fournisseur};${a.machine};${a.marque};${a.materiel};${a.reference};${a.denomination};${a.debut};${a.entrees};${a.sorties};${stockFin(a)};${a.minimum}\n`;
+    });
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "stock_fes_fcm.csv";
+    a.click();
+};
+
+/* --- IMPORT CSV / EXCEL --- */
+document.getElementById("btnImport").onclick = () => {
+    document.getElementById("fileInput").click();
+};
+
+document.getElementById("fileInput").addEventListener("change", function () {
+    const file = this.files[0];
+    if (!file) return;
+
+    if (file.name.endsWith(".csv")) {
+        importerCSV(file);
+    } else if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+        importerExcel(file);
+    } else {
+        alert("Format non supporté.");
+    }
+});
+
+function importerCSV(file) {
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const lignes = e.target.result.split("\n").map(l => l.trim()).filter(l => l);
+
+        lignes.slice(1).forEach(ligne => {
+            const cols = ligne.split(";");
+
+            if (cols.length < 11) return;
+
+            stock.push({
+                fournisseur: cols[0],
+                machine: cols[1],
+                marque: cols[2],
+                materiel: cols[3],
+                reference: cols[4],
+                denomination: cols[5],
+                debut: Number(cols[6]),
+                entrees: Number(cols[7]),
+                sorties: Number(cols[8]),
+                minimum: Number(cols[10])
+            });
+        });
+
+        sauvegarder();
+        afficher();
+        alert("Import CSV terminé !");
+    };
+    reader.readAsText(file, "UTF-8");
+}
+
+function importerExcel(file) {
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet);
+
+        json.forEach(row => {
+            stock.push({
+                fournisseur: row.Fournisseur || "",
+                machine: row.Machine || "",
+                marque: row.Marque || "",
+                materiel: row.Materiel || "",
+                reference: row.Reference || "",
+                denomination: row.Denomination || "",
+                debut: Number(row.Debut || 0),
+                entrees: Number(row.Entrees || 0),
+                sorties: Number(row.Sorties || 0),
+                minimum: Number(row.Minimum || 0)
+            });
+        });
+
+        sauvegarder();
+        afficher();
+        alert("Import Excel terminé !");
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+/* --- TÉLÉCHARGER MODÈLE CSV --- */
+document.getElementById("btnDownloadModel").onclick = () => {
+    const modele = "Fournisseur;Machine;Marque;Materiel;Reference;Denomination;Debut;Entrees;Sorties;StockFin;Minimum\n";
+    const blob = new Blob([modele], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "modele_stock_fes_fcm.csv";
+    a.click();
+};
+
+/* --- RESET BASE --- */
+document.getElementById("btnReset").onclick = () => {
+    if (confirm("Effacer toute la base ?")) {
+        stock = [];
+        sauvegarder();
+        afficher();
+    }
+};
+
+/* --- RECHERCHE --- */
+document.getElementById("search").addEventListener("input", afficher);
+
+/* --- PLEIN ÉCRAN --- */
+document.getElementById("btnFullscreen").onclick = () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+};
+
+/* --- INIT --- */
+appliqueModeSombreAuto();
+setInterval(appliqueModeSombreAuto, 300000);
+afficher();
+</script>
+
+<footer style="margin-top:20px; text-align:center; opacity:0.7;">
+    Gestion de stock FES/FCM – créé par FES/FCM
+</footer>
+
+</body>
+</html>
