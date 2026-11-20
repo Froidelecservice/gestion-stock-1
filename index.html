@@ -306,6 +306,19 @@
             </div>
         </div>
     </div>
+    <div id="modalRechercheCatalogue" class="modal-overlay">
+        <div class="modal-box">
+            <h3>🔍 Rechercher un article</h3>
+            <p>Saisissez la référence fabricant (ou Codial) de l'article à ajouter :</p>
+            <input type="text" id="inputRefCatalogue" placeholder="Ex : REF-4502" autocomplete="off">
+            <div id="msgRechercheCatalogue" style="font-size:14px; font-weight:bold; min-height:20px;"></div>
+            <div class="modal-btns">
+                <button type="button" id="btnRechercherCatalogue" style="background:#005A9C;">🔎 Rechercher</button>
+                <button type="button" id="btnAnnulerRechercheCatalogue" style="background:#777;">Annuler</button>
+            </div>
+        </div>
+    </div>
+
 
     <div class="vehicule-bar">
         <div class="vehicule-info">
@@ -328,10 +341,10 @@
         <button id="btnExportCSVPositif" class="btn">📄 CSV Stock +</button>
         <button id="btnExportExcel" class="btn">📊 Export Excel</button>
         <button id="btnExportExcelPositif" class="btn">📊 Excel Stock +</button>
-        <button id="btnImport" class="btn">📥 Importer</button>
-        <button id="btnDownloadModel" class="btn">⬇️ Modèle CSV</button>
         <button id="btnBackup" class="btn">💾 Sauvegarde</button>
         <button id="btnRestore" class="btn">♻ Restaurer</button>
+        <button id="btnImport" class="btn" disabled style="display:none;">📥 Importer</button>
+        <button id="btnDownloadModel" class="btn" disabled style="display:none;">⬇️ Modèle CSV</button>
         <button id="btnFullscreen" class="btn">⛶ Plein écran</button>
     </div>
 
@@ -431,7 +444,7 @@
         =================================== */
         const h = ["https:/", "www" + ".gstatic.com", "firebasejs", "10.12.2"].join("/");
         const { initializeApp } = await import(h + "/firebase-app.js");
-        const { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, where, writeBatch } = await import(h + "/firebase-firestore.js");
+        const { getFirestore, collection, addDoc, getDocs, getDoc, updateDoc, deleteDoc, doc, query, where, writeBatch } = await import(h + "/firebase-firestore.js");
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEOR50lOpNHSzIPgm5PjJag2hloFMdXC0",
@@ -869,51 +882,100 @@ function remplirForm(item) {
     formStock.minimum.value = item.minimum || 0;
 }
 
+const modalRechercheCat = document.getElementById("modalRechercheCatalogue");
+const inputRefCat = document.getElementById("inputRefCatalogue");
+const msgRechercheCat = document.getElementById("msgRechercheCatalogue");
+
+function fermerModalRechercheCat() {
+    modalRechercheCat.style.display = "none";
+}
+
+async function rechercherDansCatalogueEtOuvrirForm() {
+    const refSaisie = inputRefCat.value.trim().toUpperCase();
+
+    if (!refSaisie) {
+        msgRechercheCat.style.color = "#d9534f";
+        msgRechercheCat.textContent = "Veuillez saisir une référence.";
+        return;
+    }
+
+    msgRechercheCat.style.color = "#005A9C";
+    msgRechercheCat.textContent = "⏳ Recherche dans le catalogue...";
+
+    try {
+        // 1. Recherche directe par ID du document (méthode utilisée lors de l'enregistrement)
+        const docId = refSaisie.replace(/\//g, "-");
+        const docSnap = await getDoc(doc(db, "catalogue", docId));
+
+        let articleTrouve = null;
+
+        if (docSnap.exists()) {
+            articleTrouve = docSnap.data();
+        } else {
+            // 2. Secours : recherche par référence fabricant ou référence Codial
+            const qRef = query(collection(db, "catalogue"), where("reference", "==", refSaisie));
+            const snapRef = await getDocs(qRef);
+
+            if (!snapRef.empty) {
+                articleTrouve = snapRef.docs.at(0).data();
+            } else {
+                const qCodial = query(collection(db, "catalogue"), where("refCodial", "==", refSaisie));
+                const snapCodial = await getDocs(qCodial);
+                if (!snapCodial.empty) {
+                    articleTrouve = snapCodial.docs.at(0).data();
+                }
+            }
+        }
+
+        fermerModalRechercheCat();
+        resetForm();
+
+        if (articleTrouve) {
+            // Article trouvé : report automatique des informations dans le formulaire
+            formStock.reference.value = articleTrouve.reference || refSaisie;
+            formStock.codial.value = articleTrouve.refCodial || "";
+            formStock.denomination.value = articleTrouve.intitule || "";
+            formStock.marque.value = articleTrouve.marque || "";
+            formStock.fournisseur.value = articleTrouve.fournisseur || "";
+            document.getElementById("formTitle").textContent = "✅ Article trouvé dans le catalogue";
+        } else {
+            // Article non trouvé : message d'alerte + pré-remplissage de la référence saisie
+            alert("❌ L'article « " + refSaisie + " » n'est pas dans la base de données du catalogue.\nVous pouvez tout de même le saisir manuellement ci-dessous.");
+            formStock.reference.value = refSaisie;
+            document.getElementById("formTitle").textContent = "⚠️ Nouvel article (hors catalogue)";
+        }
+
+        formStock.style.display = "block";
+        formStock.scrollIntoView({ behavior: "smooth" });
+
+    } catch (error) {
+        console.error("Erreur recherche catalogue :", error);
+        msgRechercheCat.style.color = "#d9534f";
+        msgRechercheCat.textContent = "⚠️ Erreur de connexion à la base de données.";
+    }
+}
+
 document.getElementById("btnAdd").onclick = () => {
     if (!immatActuelle) {
         ouvrirModalImmat(false);
         return;
     }
-    resetForm();
-    formStock.style.display = "block";
-    formStock.scrollIntoView({ behavior: "smooth" });
+    msgRechercheCat.textContent = "";
+    inputRefCat.value = "";
+    modalRechercheCat.style.display = "flex";
+    setTimeout(() => inputRefCat.focus(), 100);
 };
 
-document.getElementById("btnSave").onclick = async () => {
-    const ref = formStock.reference.value.trim().toUpperCase();
-    const denom = formStock.denomination.value.trim();
+document.getElementById("btnRechercherCatalogue").onclick = rechercherDansCatalogueEtOuvrirForm;
 
-    if (!ref || !denom) {
-        alert("La référence et la dénomination sont obligatoires.");
-        return;
+inputRefCat.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+        e.preventDefault();
+        rechercherDansCatalogueEtOuvrirForm();
     }
+});
 
-    const articleData = creerIndexRecherche({
-        firebaseId: indexEnEdition !== null ? stock[indexEnEdition].firebaseId : null,
-        codial: formStock.codial.value.trim(),
-        fournisseur: formStock.fournisseur.value.trim(),
-        machine: formStock.machine.value.trim(),
-        marque: formStock.marque.value.trim(),
-        materiel: formStock.materiel.value.trim(),
-        reference: ref,
-        denomination: denom,
-        debut: Number(formStock.debut.value) || 0,
-        entrees: Number(formStock.entrees.value) || 0,
-        sorties: Number(formStock.sorties.value) || 0,
-        minimum: Number(formStock.minimum.value) || 0,
-        qteCommande: indexEnEdition !== null ? (stock[indexEnEdition].qteCommande || 0) : 0
-    });
-
-    if (indexEnEdition !== null) {
-        stock[indexEnEdition] = articleData;
-    } else {
-        stock.push(articleData);
-    }
-
-    resetForm();
-    afficher();
-    await syncArticleFirebase(articleData);
-};
+document.getElementById("btnAnnulerRechercheCatalogue").onclick = fermerModalRechercheCat;
 
         /* ===================================
            ACTIONS LIGNES (ENTRÉE, SORTIE, MODIF, SUPPR)
@@ -1358,7 +1420,7 @@ async function chargerXLSX() {
 
     <footer>
         <br>
-        © 2026 Robert AURAY - Gestion de Stock Véhicule FES / FCM - Version 2.0 (Cloud Firebase) - Tous droits réservés
+        © 2026 Robert AURAY - Gestion de Stock Véhicule FES / FCM - Version 2.1 (Cloud Firebase) - Tous droits réservés
     </footer>
 
 </body>
