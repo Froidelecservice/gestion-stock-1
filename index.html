@@ -977,6 +977,43 @@ inputRefCat.addEventListener("keydown", (e) => {
 
 document.getElementById("btnAnnulerRechercheCatalogue").onclick = fermerModalRechercheCat;
 
+document.getElementById("btnSave").onclick = async () => {
+    const ref = formStock.reference.value.trim().toUpperCase();
+    const denom = formStock.denomination.value.trim();
+
+    if (!ref || !denom) {
+        alert("La référence et la dénomination sont obligatoires.");
+        return;
+    }
+
+    const articleData = creerIndexRecherche({
+        firebaseId: indexEnEdition !== null ? stock[indexEnEdition].firebaseId : null,
+        codial: formStock.codial.value.trim(),
+        fournisseur: formStock.fournisseur.value.trim(),
+        machine: formStock.machine.value.trim(),
+        marque: formStock.marque.value.trim(),
+        materiel: formStock.materiel.value.trim(),
+        reference: ref,
+        denomination: denom,
+        debut: Number(formStock.debut.value) || 0,
+        entrees: Number(formStock.entrees.value) || 0,
+        sorties: Number(formStock.sorties.value) || 0,
+        minimum: Number(formStock.minimum.value) || 0,
+        qteCommande: indexEnEdition !== null ? (stock[indexEnEdition].qteCommande || 0) : 0
+    });
+
+    if (indexEnEdition !== null) {
+        stock[indexEnEdition] = articleData;
+    } else {
+        stock.push(articleData);
+    }
+
+    resetForm();
+    afficher();
+    await syncArticleFirebase(articleData);
+};
+
+
         /* ===================================
            ACTIONS LIGNES (ENTRÉE, SORTIE, MODIF, SUPPR)
         =================================== */
