@@ -899,11 +899,26 @@ async function rechercherDansCatalogueEtOuvrirForm() {
         return;
     }
 
+    // 0. Vérification immédiate si l'article est déjà dans le véhicule (0 lecture Firebase)
+    const indexExistant = stock.findIndex(item => 
+        (item.reference || "").trim().toUpperCase() === refSaisie ||
+        (item.codial || "").trim().toUpperCase() === refSaisie
+    );
+
+    if (indexExistant !== -1) {
+        const artExistant = stock[indexExistant];
+        fermerModalRechercheCat();
+        if (confirm(`⚠️ Cet article est déjà dans votre véhicule :\n\n• Réf : ${artExistant.reference}\n• Désignation : ${artExistant.denomination}\n• Stock actuel : ${stockFin(artExistant)}\n\nVoulez-vous ouvrir sa fiche pour le modifier ?`)) {
+            modifierArticle(indexExistant);
+        }
+        return;
+    }
+
     msgRechercheCat.style.color = "#005A9C";
     msgRechercheCat.textContent = "⏳ Recherche dans le catalogue...";
 
     try {
-        // 1. Recherche directe par ID du document (méthode utilisée lors de l'enregistrement)
+        // 1. Recherche directe par ID du document
         const docId = refSaisie.replace(/\//g, "-");
         const docSnap = await getDoc(doc(db, "catalogue", docId));
 
@@ -931,7 +946,6 @@ async function rechercherDansCatalogueEtOuvrirForm() {
         resetForm();
 
         if (articleTrouve) {
-            // Article trouvé : report automatique des informations dans le formulaire
             formStock.reference.value = articleTrouve.reference || refSaisie;
             formStock.codial.value = articleTrouve.refCodial || "";
             formStock.denomination.value = articleTrouve.intitule || "";
@@ -939,7 +953,6 @@ async function rechercherDansCatalogueEtOuvrirForm() {
             formStock.fournisseur.value = articleTrouve.fournisseur || "";
             document.getElementById("formTitle").textContent = "✅ Article trouvé dans le catalogue";
         } else {
-            // Article non trouvé : message d'alerte + pré-remplissage de la référence saisie
             alert("❌ L'article « " + refSaisie + " » n'est pas dans la base de données du catalogue.\nVous pouvez tout de même le saisir manuellement ci-dessous.");
             formStock.reference.value = refSaisie;
             document.getElementById("formTitle").textContent = "⚠️ Nouvel article (hors catalogue)";
@@ -954,6 +967,7 @@ async function rechercherDansCatalogueEtOuvrirForm() {
         msgRechercheCat.textContent = "⚠️ Erreur de connexion à la base de données.";
     }
 }
+
 
 document.getElementById("btnAdd").onclick = () => {
     if (!immatActuelle) {
