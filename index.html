@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestion de Stock Véhicule FES / FCM</title>
+    <title>Gestion de Stock Véhicule technicien FES / FCM</title>
     <link rel="manifest" href="manifest.json">
     <script>
         if ("serviceWorker" in navigator) {
@@ -345,6 +345,7 @@
         <button id="btnRestore" class="btn">♻ Restaurer</button>
         <button id="btnImport" class="btn" disabled style="display:none;">📥 Importer</button>
         <button id="btnDownloadModel" class="btn" disabled style="display:none;">⬇️ Modèle CSV</button>
+        <button id="btnInventaire" class="btn" onclick="ouvrirInventaire()" style="background:#007bff;">📋 Faire un inventaire</button>
         <button id="btnFullscreen" class="btn">⛶ Plein écran</button>
     </div>
 
@@ -423,7 +424,7 @@
                     <th>MATÉRIEL</th>
                     <th>RÉFÉRENCE</th>
                     <th>DÉNOMINATION</th>
-                    <th>DÉBUT</th>
+                    <th>STOCK INITIAL</th>
                     <th>ENTRÉES</th>
                     <th>SORTIES</th>
                     <th>STOCK FIN</th>
@@ -482,7 +483,7 @@
 
         function creerIndexRecherche(item) {
             item._search = (
-                (item.codial || "") + " " +
+                (item.refCodial || "") + " " +
                 (item.fournisseur || "") + " " +
                 (item.machine || "") + " " +
                 (item.marque || "") + " " +
@@ -611,7 +612,7 @@
 
                     liste.push(creerIndexRecherche({
                         firebaseId: docSnap.id,
-                        codial: d.codial || "",
+                        refCodial: d.refCodial || d.codial || "",
                         fournisseur: d.fournisseur || "",
                         machine: d.machine || "",
                         marque: d.marque || "",
@@ -676,7 +677,7 @@
                 reference: refClean,
                 intitule: denomClean,
                 quantite: qteReelle,
-                codial: item.codial || "",
+                codial: item.refCodial || "",
                 fournisseur: item.fournisseur || "",
                 machine: item.machine || "",
                 marque: item.marque || "",
@@ -748,7 +749,7 @@
                             reference: refClean,
                             intitule: denomClean,
                             quantite: stockFin(item),
-                            codial: item.codial || "",
+                            codial: item.refCodial || "",
                             fournisseur: item.fournisseur || "",
                             machine: item.machine || "",
                             marque: item.marque || "",
@@ -813,7 +814,7 @@
                 }
 
                 const valeurs = [
-                    item.codial || "",
+                    item.refCodial || "",
                     item.fournisseur || "",
                     item.machine || "",
                     item.marque || "",
@@ -869,7 +870,7 @@ window.resetForm = function() {
 };
 
 function remplirForm(item) {
-    formStock.codial.value = item.codial || "";
+    formStock.codial.value = item.refCodial || "";
     formStock.fournisseur.value = item.fournisseur || "";
     formStock.machine.value = item.machine || "";
     formStock.marque.value = item.marque || "";
@@ -902,7 +903,7 @@ async function rechercherDansCatalogueEtOuvrirForm() {
     // 0. Vérification immédiate si l'article est déjà dans le véhicule (0 lecture Firebase)
     const indexExistant = stock.findIndex(item => 
         (item.reference || "").trim().toUpperCase() === refSaisie ||
-        (item.codial || "").trim().toUpperCase() === refSaisie
+        (item.refCodial || "").trim().toUpperCase() === refSaisie
     );
 
     if (indexExistant !== -1) {
@@ -1202,7 +1203,7 @@ async function chargerXLSX() {
 
         function preparerDonneesExcel(liste) {
             return liste.map(item => ({
-                "Reference codial": item.codial || "",
+                "Reference codial": item.refCodial || "",
                 "Fournisseur": item.fournisseur || "",
                 "Machine": item.machine || "",
                 "Marque": item.marque || "",
@@ -1467,11 +1468,338 @@ async function chargerXLSX() {
         } else {
             ouvrirModalImmat(false);
         }
+/* ===================================
+   INVENTAIRE TECHNICIEN
+=================================== */
+let articleSelectionneInv = null;
+let lignesInventaireEnCours = [];
+
+function ouvrirInventaire() {
+    lignesInventaireEnCours = [];
+    articleSelectionneInv = null;
+    document.getElementById("invImmatTitre").textContent = immatActuelle || "";
+    document.getElementById("inputRechercheInv").value = "";
+    document.getElementById("ficheArticleTrouve").style.display = "none";
+    document.getElementById("msgArticleNonTrouve").style.display = "none";
+    document.getElementById("etapeSaisieInv").style.display = "block";
+    document.getElementById("etapeResultatTechnicien").style.display = "none";
+
+    afficherLignesInventaire();
+    document.getElementById("modalInventaire").style.display = "block";
+    document.getElementById("inputRechercheInv").focus();
+}
+
+function fermerInventaire() {
+    document.getElementById("modalInventaire").style.display = "none";
+}
+
+function rechercherArticleInventaire() {
+    const saisie = document.getElementById("inputRechercheInv").value.trim().toLowerCase();
+    const fiche = document.getElementById("ficheArticleTrouve");
+    const msgErreur = document.getElementById("msgArticleNonTrouve");
+
+    if (!saisie) {
+        fiche.style.display = "none";
+        msgErreur.style.display = "none";
+        articleSelectionneInv = null;
+        return;
+    }
+
+    let trouve = stock.find(item => 
+        (item.refCodial && item.refCodial.toLowerCase() === saisie) ||
+        (item.reference && item.reference.toLowerCase() === saisie)
+    );
+
+    if (!trouve && saisie.length >= 3) {
+        trouve = stock.find(item => 
+            (item.refCodial && item.refCodial.toLowerCase().includes(saisie)) ||
+            (item.reference && item.reference.toLowerCase().includes(saisie))
+        );
+    }
+
+    if (trouve) {
+        articleSelectionneInv = trouve;
+        document.getElementById("affCodial").textContent = trouve.refCodial || "-";
+        document.getElementById("affRefFournisseur").textContent = trouve.reference || "-";
+        document.getElementById("affFournisseur").textContent = trouve.fournisseur || "-";
+        document.getElementById("affDenomination").textContent = trouve.denomination || "-";
+        document.getElementById("inputQteComptee").value = "";
+        
+        fiche.style.display = "block";
+        msgErreur.style.display = "none";
+    } else {
+        articleSelectionneInv = null;
+        fiche.style.display = "none";
+        msgErreur.style.display = "block";
+    }
+}
+
+function ajouterLigneInventaire() {
+    if (!articleSelectionneInv) return;
+    const qteVal = document.getElementById("inputQteComptee").value;
+    if (qteVal === "" || Number(qteVal) < 0) {
+        alert("Veuillez saisir une quantité valide (0 ou plus).");
+        return;
+    }
+
+    const stockReel = Number(qteVal);
+    const stockTheorique = stockFin(articleSelectionneInv);
+
+    const indexExistant = lignesInventaireEnCours.findIndex(l => l.firebaseId === articleSelectionneInv.firebaseId);
+    const ligneData = {
+        firebaseId: articleSelectionneInv.firebaseId,
+        refCodial: articleSelectionneInv.refCodial || "",
+        reference: articleSelectionneInv.reference || "",
+        fournisseur: articleSelectionneInv.fournisseur || "",
+        denomination: articleSelectionneInv.denomination || "",
+        stockTheorique: stockTheorique,
+        stockReel: stockReel,
+        ecart: stockReel - stockTheorique
+    };
+
+    if (indexExistant !== -1) {
+        lignesInventaireEnCours[indexExistant] = ligneData;
+    } else {
+        lignesInventaireEnCours.push(ligneData);
+    }
+
+    document.getElementById("inputRechercheInv").value = "";
+    document.getElementById("ficheArticleTrouve").style.display = "none";
+    articleSelectionneInv = null;
+    afficherLignesInventaire();
+    document.getElementById("inputRechercheInv").focus();
+}
+
+function supprimerLigneInventaire(index) {
+    lignesInventaireEnCours.splice(index, 1);
+    afficherLignesInventaire();
+}
+
+function afficherLignesInventaire() {
+    const tbody = document.getElementById("tbodySaisieInv");
+    tbody.innerHTML = "";
+    document.getElementById("compteurLignesInv").textContent = lignesInventaireEnCours.length;
+
+    lignesInventaireEnCours.forEach((ligne, index) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td style="padding:6px;">${ligne.refCodial}</td>
+            <td style="padding:6px;">${ligne.reference}</td>
+            <td style="padding:6px;">${ligne.fournisseur}</td>
+            <td style="padding:6px;">${ligne.denomination}</td>
+            <td style="padding:6px; text-align:center; font-weight:bold;">${ligne.stockReel}</td>
+            <td style="padding:6px; text-align:center;">
+                <button onclick="supprimerLigneInventaire(${index})" style="background:#dc3545; color:white; border:none; padding:3px 8px; border-radius:3px; cursor:pointer;">🗑️</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function validerEtSauvegarderInventaire() {
+    if (lignesInventaireEnCours.length === 0) {
+        alert("Aucun article n'a été saisi dans cet inventaire.");
+        return;
+    }
+
+    const btn = document.getElementById("btnValiderInv");
+    btn.disabled = true;
+    btn.textContent = "⏳ Envoi en cours...";
+
+    const erreurs = lignesInventaireEnCours.filter(l => l.ecart !== 0);
+    const rapport = {
+        immat: immatActuelle || "Inconnu",
+        date: new Date().toISOString(),
+        dateAffichage: new Date().toLocaleString('fr-FR'),
+        nbArticlesComptes: lignesInventaireEnCours.length,
+        nbErreurs: erreurs.length,
+        lignes: lignesInventaireEnCours,
+        erreurs: erreurs
+    };
+
+    try {
+        await addDoc(collection(db, "inventaires"), rapport);
+
+        const conteneur = document.getElementById("contenuResultatTechnicien");
+        let html = `<h3>Résultat de votre inventaire (${rapport.nbArticlesComptes} article(s) contrôlé(s))</h3>`;
+
+        if (erreurs.length === 0) {
+            html += `<p style="color:#28a745; font-weight:bold; font-size:16px;">🎉 Aucun écart ! Votre stock réel correspond parfaitement au stock théorique.</p>`;
+        } else {
+            html += `
+                <p style="color:#d9534f; font-weight:bold;">⚠️ ${erreurs.length} erreur(s) constatée(s) :</p>
+                <div style="width:100%; overflow-x:auto;">
+                    <table border="1" style="width:100%; min-width:0 !important; border-collapse:collapse; text-align:left; font-size:14px;">
+                        <thead style="background:#d9534f; color:white;">
+                            <tr>
+                                <th style="padding:8px;">Réf. Codial</th>
+                                <th style="padding:8px;">Réf. Fournisseur</th>
+                                <th style="padding:8px;">Dénomination</th>
+                                <th style="padding:8px; text-align:center;">Stock Théo.</th>
+                                <th style="padding:8px; text-align:center;">Stock Réel</th>
+                                <th style="padding:8px; text-align:center;">Écart</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            erreurs.forEach(err => {
+                const signe = err.ecart > 0 ? "+" : "";
+                html += `
+                    <tr>
+                        <td style="padding:6px;">${err.refCodial}</td>
+                        <td style="padding:6px;">${err.reference}</td>
+                        <td style="padding:6px;">${err.denomination}</td>
+                        <td style="padding:6px; text-align:center; font-weight:bold;">${err.stockTheorique}</td>
+                        <td style="padding:6px; text-align:center; font-weight:bold;">${err.stockReel}</td>
+                        <td style="padding:6px; text-align:center; color:${err.ecart < 0 ? 'red' : 'green'}; font-weight:bold;">
+                            ${signe}${err.ecart}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table></div>`;
+        }
+
+        conteneur.innerHTML = html;
+        document.getElementById("etapeSaisieInv").style.display = "none";
+        document.getElementById("etapeResultatTechnicien").style.display = "block";
+
+    } catch (error) {
+        console.error("Erreur sauvegarde inventaire :", error);
+        alert("⚠️ Erreur lors de l'envoi sur Firebase. Vérifiez votre connexion.");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "✅ Valider l'inventaire";
+    }
+}
+
+window.ouvrirInventaire = ouvrirInventaire;
+window.fermerInventaire = fermerInventaire;
+window.rechercherArticleInventaire = rechercherArticleInventaire;
+window.ajouterLigneInventaire = ajouterLigneInventaire;
+window.supprimerLigneInventaire = supprimerLigneInventaire;
+window.validerEtSauvegarderInventaire = validerEtSauvegarderInventaire;
+
+function imprimerResultatInventaireTech() {
+    const contenu = document.getElementById("contenuResultatTechnicien").innerHTML;
+    const immat = immatActuelle || "Non renseigné";
+    const dateJour = new Date().toLocaleString('fr-FR');
+
+    const fenetreImpression = window.open("", "", "width=900,height=650");
+    fenetreImpression.document.write(`
+        <html>
+            <head>
+                <title>Écarts d'inventaire - ${immat}</title>
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
+                    h2 { color: #005A9C; border-bottom: 2px solid #005A9C; padding-bottom: 8px; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
+                    th { background-color: #d9534f !important; color: white !important; padding: 8px; text-align: left; -webkit-print-color-adjust: exact; }
+                    td { border: 1px solid #ccc; padding: 7px; }
+                </style>
+            </head>
+            <body>
+                <h2>📋 Relevé d'écarts d'inventaire — Véhicule ${immat}</h2>
+                <p><strong>Date du contrôle :</strong> ${dateJour}</p>
+                ${contenu}
+                <p style="margin-top:30px; font-size:12px; color:#666;">Document généré pour vérification et rectification du stock véhicule.</p>
+            </body>
+        </html>
+    `);
+    fenetreImpression.document.close();
+    fenetreImpression.focus();
+    fenetreImpression.print();
+}
+
+window.imprimerResultatInventaireTech = imprimerResultatInventaireTech;
+
+
+
     </script>
+<!-- MODALE INVENTAIRE TECHNICIEN -->
+<div id="modalInventaire" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:1000; overflow-y:auto;">
+    <div style="background:white; margin:20px auto; padding:20px; width:92%; max-width:950px; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.3);">
+        
+        <!-- EN-TÊTE -->
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #ddd; padding-bottom:10px;">
+            <h2 style="margin:0;">📋 Inventaire — Véhicule : <span id="invImmatTitre"></span></h2>
+            <button onclick="fermerInventaire()" style="background:#dc3545; color:white; border:none; padding:5px 12px; border-radius:4px; cursor:pointer;">✖ Fermer</button>
+        </div>
+
+        <!-- ÉTAPE 1 : SAISIE DES ARTICLES -->
+        <div id="etapeSaisieInv">
+            <div style="background:#f8f9fa; padding:15px; border-radius:6px; margin-top:15px; border:1px solid #ddd;">
+                <label for="inputRechercheInv"><strong>1. Saisissez ou scannez une référence (Codial ou Fournisseur) :</strong></label><br>
+                <input type="text" id="inputRechercheInv" oninput="rechercherArticleInventaire()" placeholder="Ex: 20076989..." style="width:100%; max-width:400px; padding:8px; font-size:16px; margin-top:5px; border:2px solid #007bff; border-radius:4px;">
+
+                <!-- FICHE ARTICLE TROUVÉ -->
+                <div id="ficheArticleTrouve" style="display:none; margin-top:15px; padding:12px; background:#e9f7ef; border:1px solid #28a745; border-radius:6px;">
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin-bottom:10px;">
+                        <div><strong>Réf. Codial :</strong> <span id="affCodial"></span></div>
+                        <div><strong>Réf. Fournisseur :</strong> <span id="affRefFournisseur"></span></div>
+                        <div><strong>Fournisseur :</strong> <span id="affFournisseur"></span></div>
+                        <div style="grid-column: 1 / -1;"><strong>Dénomination :</strong> <span id="affDenomination" style="font-size:16px; color:#0056b3;"></span></div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
+                        <label for="inputQteComptee"><strong>2. Quantité comptée :</strong></label>
+                        <input type="number" id="inputQteComptee" min="0" style="width:100px; padding:8px; font-size:16px; font-weight:bold;" onkeydown="if(event.key==='Enter') ajouterLigneInventaire()">
+                        <button onclick="ajouterLigneInventaire()" style="background:#28a745; color:white; padding:8px 15px; border:none; border-radius:4px; font-size:15px; cursor:pointer;">
+                            ➕ Ajouter
+                        </button>
+                    </div>
+                </div>
+                <p id="msgArticleNonTrouve" style="display:none; color:#d9534f; font-weight:bold; margin-top:10px;">❌ Aucun article trouvé avec cette référence dans votre véhicule.</p>
+            </div>
+
+            <!-- TABLEAU DES ARTICLES COMPTÉS -->
+            <h3 style="margin-top:20px;">Articles comptés (<span id="compteurLignesInv">0</span>)</h3>
+<div style="width:100%; overflow-x:auto;">
+    <table border="1" style="width:100%; min-width:100%; border-collapse:collapse; text-align:left; font-size:14px;">
+        <thead style="background:#343a40; color:white;">
+            <tr>
+                <th style="padding:8px;">Réf. Codial</th>
+                <th style="padding:8px;">Réf. Fournisseur</th>
+                <th style="padding:8px;">Fournisseur</th>
+                <th style="padding:8px;">Dénomination</th>
+                <th style="padding:8px; text-align:center; width:90px;">Qté</th>
+                <th style="padding:8px; text-align:center; width:70px;">Action</th>
+            </tr>
+        </thead>
+        <tbody id="tbodySaisieInv"></tbody>
+    </table>
+</div>
+            <!-- BOUTON DE VALIDATION -->
+            <div style="margin-top:20px; text-align:right;">
+                <button id="btnValiderInv" onclick="validerEtSauvegarderInventaire()" style="background:#007bff; color:white; padding:12px 20px; border:none; border-radius:4px; font-size:16px; font-weight:bold; cursor:pointer;">
+                    ✅ Valider l'inventaire
+                </button>
+            </div>
+        </div>
+
+        <!-- ÉTAPE 2 : RÉSULTAT AFFICHÉ AU TECHNICIEN -->
+        <div id="etapeResultatTechnicien" style="display:none; margin-top:15px;">
+            <div style="background:#d4edda; color:#155724; padding:12px; border-radius:6px; border:1px solid #c3e6cb; margin-bottom:15px;">
+                ✅ <strong>Inventaire validé et transmis automatiquement au bureau !</strong>
+            </div>
+            <div id="contenuResultatTechnicien"></div>
+            <div style="margin-top:20px; text-align:right;">
+                <button id="btnPdfInventaireTech" onclick="imprimerResultatInventaireTech()" style="background:#17a2b8; color:white; padding:10px 20px; border:none; border-radius:4px; font-size:16px; font-weight:bold; cursor:pointer;">
+                    🖨️ Éditer / Imprimer le PDF des erreurs
+                </button>
+                <button onclick="fermerInventaire()" style="background:#28a745; color:white; padding:10px 20px; border:none; border-radius:4px; font-size:16px; cursor:pointer;">
+                    Fermer
+                </button>
+            </div>
+        </div>
+
+    </div>
+</div>
 
     <footer>
         <br>
-        © 2026 Robert AURAY - Gestion de Stock Véhicule FES / FCM - Version 2.1 (Cloud Firebase) - Tous droits réservés
+        © 2026 Robert AURAY - Gestion de Stock Véhicule FES / FCM - Version 2.2 (Cloud Firebase) - Tous droits réservés
     </footer>
 
 </body>
