@@ -347,6 +347,8 @@
         <button id="btnDownloadModel" class="btn" disabled style="display:none;">⬇️ Modèle CSV</button>
         <button id="btnInventaire" class="btn" onclick="ouvrirInventaire()" style="background:#007bff;">📋 Faire un inventaire</button>
         <button id="btnFullscreen" class="btn">⛶ Plein écran</button>
+<button onclick="quitterApplication()" style="background:#dc3545; color:white; border:none; padding:16px 24px; border-radius:6px; font-size:16px; font-weight:bold; cursor:pointer; display:inline-flex; align-items:center; gap:8px;">🚪 Quitter</button>
+
     </div>
 
     <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none;">
@@ -1715,6 +1717,22 @@ function imprimerResultatInventaireTech() {
 
 window.imprimerResultatInventaireTech = imprimerResultatInventaireTech;
 
+    window.quitterApplication = function() {
+        if (!confirm("Voulez-vous vraiment quitter l'application Gestion des Stocks Technicien ?")) {
+            return;
+        }
+        window.close();
+        // Sécurité si le navigateur bloque la fermeture directe de l'onglet
+        setTimeout(() => {
+            document.body.innerHTML = `
+                <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100vh; background:#003366; color:white; font-family:Arial, sans-serif; text-align:center; padding:20px;">
+                    <h1 style="margin-bottom:15px;">✅ Session fermée</h1>
+                    <p style="font-size:16px; margin-bottom:25px;">Vous avez quitté l'application Technicien.<br>Vous pouvez fermer cet onglet ou cette fenêtre en toute sécurité.</p>
+                    <button onclick="location.reload()" style="background:#28a745; color:white; border:none; padding:12px 24px; border-radius:5px; font-size:15px; font-weight:bold; cursor:pointer;">🔄 Rouvrir l'application</button>
+                </div>
+            `;
+        }, 200);
+    };
 
 
     </script>
