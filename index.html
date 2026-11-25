@@ -289,6 +289,8 @@
             opacity: .8;
         }
     </style>
+<script src="xlsx.full.min.js"></script>
+
 </head>
 <body>
 
@@ -360,55 +362,55 @@
     </div>
 
     <form id="formStock">
-        <h3 id="formTitle">Nouvel article</h3>
+        <h3 id="formTitle">Ajouter un article du catalogue</h3>
         <div class="row">
             <div class="field">
                 <label>Référence Codial</label>
-                <input type="text" name="codial">
+                <input type="text" name="codial" readonly style="background:#e9ecef; color:#555;">
             </div>
             <div class="field">
                 <label>Fournisseur</label>
-                <input type="text" name="fournisseur">
+                <input type="text" name="fournisseur" readonly style="background:#e9ecef; color:#555;">
             </div>
             <div class="field">
                 <label>Machine</label>
-                <input type="text" name="machine">
+                <input type="text" name="machine" readonly style="background:#e9ecef; color:#555;">
             </div>
             <div class="field">
                 <label>Marque</label>
-                <input type="text" name="marque">
+                <input type="text" name="marque" readonly style="background:#e9ecef; color:#555;">
             </div>
         </div>
         <div class="row">
             <div class="field">
                 <label>Matériel</label>
-                <input type="text" name="materiel">
+                <input type="text" name="materiel" readonly style="background:#e9ecef; color:#555;">
             </div>
             <div class="field">
                 <label>Référence *</label>
-                <input type="text" name="reference" required>
+                <input type="text" name="reference" required readonly style="background:#e9ecef; color:#555;">
             </div>
             <div class="field">
                 <label>Dénomination (Intitulé) *</label>
-                <input type="text" name="denomination" required>
+                <input type="text" name="denomination" required readonly style="background:#e9ecef; color:#555;">
             </div>
         </div>
         <div class="row">
             <div class="field">
                 <label>Stock début mois</label>
-                <input type="number" name="debut" value="0">
+                <input type="number" name="debut" value="0" readonly style="background:#e9ecef; color:#555;">
             </div>
             <div class="field">
-                <label>Entrées</label>
-                <input type="number" name="entrees" value="0">
+                <label><strong>Quantité Entrée *</strong></label>
+                <input type="number" name="entrees" value="0" min="0" style="border: 2px solid #28a745; font-weight: bold;">
             </div>
             <div class="field">
                 <label>Sorties</label>
-                <input type="number" name="sorties" value="0">
+                <input type="number" name="sorties" value="0" readonly style="background:#e9ecef; color:#555;">
             </div>
             <div class="field">
-                <label>Stock minimum</label>
-                <input type="number" name="minimum" value="0">
+                <label><strong>Stock minimum</strong></label>
+                <input type="number" name="minimum" value="0" min="0" style="border: 2px solid #005A9C;">
             </div>
         </div>
         <button type="button" id="btnSave">💾 Enregistrer</button>
@@ -433,8 +435,6 @@
                     <th>MIN</th>
                     <th>ENTRÉE</th>
                     <th>SORTIE</th>
-                    <th>MODIFIER</th>
-                    <th>SUPPRIMER</th>
                 </tr>
             </thead>
             <tbody></tbody>
@@ -836,6 +836,18 @@
                         const strong = document.createElement("strong");
                         strong.textContent = val;
                         td.appendChild(strong);
+                    } else if (idx === 11) {
+                        td.style.cursor = "pointer";
+                        td.title = "Cliquer pour modifier le stock minimum";
+                        td.innerHTML = `<span style="text-decoration:underline; color:#005A9C; font-weight:bold;">${val} ✏️</span>`;
+                        td.onclick = async () => {
+                            const nouveauMin = prompt(`Nouveau stock minimum pour "${item.denomination}" :`, item.minimum || 0);
+                            if (nouveauMin !== null && !isNaN(nouveauMin) && Number(nouveauMin) >= 0) {
+                                stock[vraiIndex].minimum = Number(nouveauMin);
+                                afficher();
+                                await syncArticleFirebase(stock[vraiIndex]);
+                            }
+                        };
                     } else {
                         td.textContent = val;
                     }
@@ -845,10 +857,8 @@
                 const actions = [
                     { texte: "Entrée +", classe: "btn-small btn-entree", fn: () => ajouterEntree(vraiIndex) },
                     { texte: "Sortie -", classe: "btn-small btn-sortie", fn: () => ajouterSortie(vraiIndex) },
-                    { texte: "Modifier", classe: "btn-small btn-modifier", fn: () => modifierArticle(vraiIndex) },
                     { texte: "❌", classe: "btn-small btn-delete", fn: () => supprimer(vraiIndex) }
                 ];
-
                 actions.forEach(act => {
                     const td = document.createElement("td");
                     const btn = document.createElement("button");
@@ -902,7 +912,6 @@ async function rechercherDansCatalogueEtOuvrirForm() {
         return;
     }
 
-    // 0. Vérification immédiate si l'article est déjà dans le véhicule (0 lecture Firebase)
     const indexExistant = stock.findIndex(item => 
         (item.reference || "").trim().toUpperCase() === refSaisie ||
         (item.refCodial || "").trim().toUpperCase() === refSaisie
@@ -911,8 +920,8 @@ async function rechercherDansCatalogueEtOuvrirForm() {
     if (indexExistant !== -1) {
         const artExistant = stock[indexExistant];
         fermerModalRechercheCat();
-        if (confirm(`⚠️ Cet article est déjà dans votre véhicule :\n\n• Réf : ${artExistant.reference}\n• Désignation : ${artExistant.denomination}\n• Stock actuel : ${stockFin(artExistant)}\n\nVoulez-vous ouvrir sa fiche pour le modifier ?`)) {
-            modifierArticle(indexExistant);
+        if (confirm(`⚠️ Cet article est déjà dans votre véhicule :\n\n• Réf : ${artExistant.reference}\n• Désignation : ${artExistant.denomination}\n• Stock actuel : ${stockFin(artExistant)}\n\nVoulez-vous ajouter une quantité en ENTRÉE ?`)) {
+            ajouterEntree(indexExistant);
         }
         return;
     }
@@ -921,7 +930,6 @@ async function rechercherDansCatalogueEtOuvrirForm() {
     msgRechercheCat.textContent = "⏳ Recherche dans le catalogue...";
 
     try {
-        // 1. Recherche directe par ID du document
         const docId = refSaisie.replace(/\//g, "-");
         const docSnap = await getDoc(doc(db, "catalogue", docId));
 
@@ -930,7 +938,6 @@ async function rechercherDansCatalogueEtOuvrirForm() {
         if (docSnap.exists()) {
             articleTrouve = docSnap.data();
         } else {
-            // 2. Secours : recherche par référence fabricant ou référence Codial
             const qRef = query(collection(db, "catalogue"), where("reference", "==", refSaisie));
             const snapRef = await getDocs(qRef);
 
@@ -945,24 +952,30 @@ async function rechercherDansCatalogueEtOuvrirForm() {
             }
         }
 
+        if (!articleTrouve) {
+            msgRechercheCat.style.color = "#d9534f";
+            msgRechercheCat.textContent = "❌ Article inconnu : seul le chef de bureau peut créer un nouvel article.";
+            return;
+        }
+
         fermerModalRechercheCat();
         resetForm();
 
-        if (articleTrouve) {
-            formStock.reference.value = articleTrouve.reference || refSaisie;
-            formStock.codial.value = articleTrouve.refCodial || "";
-            formStock.denomination.value = articleTrouve.intitule || "";
-            formStock.marque.value = articleTrouve.marque || "";
-            formStock.fournisseur.value = articleTrouve.fournisseur || "";
-            document.getElementById("formTitle").textContent = "✅ Article trouvé dans le catalogue";
-        } else {
-            alert("❌ L'article « " + refSaisie + " » n'est pas dans la base de données du catalogue.\nVous pouvez tout de même le saisir manuellement ci-dessous.");
-            formStock.reference.value = refSaisie;
-            document.getElementById("formTitle").textContent = "⚠️ Nouvel article (hors catalogue)";
-        }
+        formStock.reference.value = articleTrouve.reference || refSaisie;
+        formStock.codial.value = articleTrouve.refCodial || articleTrouve.codial || "";
+        formStock.denomination.value = articleTrouve.intitule || articleTrouve.denomination || "";
+        formStock.marque.value = articleTrouve.marque || "";
+        formStock.fournisseur.value = articleTrouve.fournisseur || "";
+        formStock.machine.value = articleTrouve.machine || "";
+        formStock.materiel.value = articleTrouve.materiel || "";
+        document.getElementById("formTitle").textContent = "✅ Article trouvé — Saisissez la quantité entrée";
 
         formStock.style.display = "block";
         formStock.scrollIntoView({ behavior: "smooth" });
+        setTimeout(() => {
+            formStock.entrees.focus();
+            formStock.entrees.select();
+        }, 150);
 
     } catch (error) {
         console.error("Erreur recherche catalogue :", error);
@@ -999,31 +1012,27 @@ document.getElementById("btnSave").onclick = async () => {
     const denom = formStock.denomination.value.trim();
 
     if (!ref || !denom) {
-        alert("La référence et la dénomination sont obligatoires.");
+        alert("Erreur : article invalide.");
         return;
     }
 
     const articleData = creerIndexRecherche({
-        firebaseId: indexEnEdition !== null ? stock[indexEnEdition].firebaseId : null,
-        codial: formStock.codial.value.trim(),
+        firebaseId: null,
+        refCodial: formStock.codial.value.trim(),
         fournisseur: formStock.fournisseur.value.trim(),
         machine: formStock.machine.value.trim(),
         marque: formStock.marque.value.trim(),
         materiel: formStock.materiel.value.trim(),
         reference: ref,
         denomination: denom,
-        debut: Number(formStock.debut.value) || 0,
+        debut: 0,
         entrees: Number(formStock.entrees.value) || 0,
-        sorties: Number(formStock.sorties.value) || 0,
+        sorties: 0,
         minimum: Number(formStock.minimum.value) || 0,
-        qteCommande: indexEnEdition !== null ? (stock[indexEnEdition].qteCommande || 0) : 0
+        qteCommande: 0
     });
 
-    if (indexEnEdition !== null) {
-        stock[indexEnEdition] = articleData;
-    } else {
-        stock.push(articleData);
-    }
+    stock.push(articleData);
 
     resetForm();
     afficher();
@@ -1144,30 +1153,31 @@ document.getElementById("btnSave").onclick = async () => {
         /* ===================================
            EXPORTS CSV & MODÈLE
         =================================== */
-        document.getElementById("btnExportCSV").onclick = () => {
-            let csv = "Reference codial;Fournisseur;Machine;Marque;Materiel;Reference;Denomination;Debut;Entrees;Sorties;StockFin;Minimum\n";
-            stock.forEach(a => {
-                csv += `${a.codial};${a.fournisseur};${a.machine};${a.marque};${a.materiel};${a.reference};${a.denomination};${a.debut};${a.entrees};${a.sorties};${stockFin(a)};${a.minimum}\n`;
-            });
-            const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-            const lien = document.createElement("a");
-            lien.href = URL.createObjectURL(blob);
-            lien.download = `stock_${immatActuelle || "fes_fcm"}.csv`;
-            lien.click();
-        };
+document.getElementById("btnExportCSV").onclick = () => {
+  let csv = "Reference codial;Fournisseur;Machine;Marque;Materiel;Reference;Denomination;Debut;Entrees;Sorties;StockFin;Minimum\n";
+  stock.forEach(a => {
+    // Utilisation de a.refCodial au lieu de a.codial
+    csv += `${a.refCodial || ""};${a.fournisseur || ""};${a.machine || ""};${a.marque || ""};${a.materiel || ""};${a.reference || ""};${a.denomination || ""};${a.debut || 0};${a.entrees || 0};${a.sorties || 0};${stockFin(a)};${a.minimum || 0}\n`;
+  });
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const lien = document.createElement("a");
+  lien.href = URL.createObjectURL(blob);
+  lien.download = `stock_${immatActuelle || "fes_fcm"}.csv`;
+  lien.click();
+};
 
-        document.getElementById("btnExportCSVPositif").onclick = () => {
-            let csv = "Reference codial;Fournisseur;Machine;Marque;Materiel;Reference;Denomination;Debut;Entrees;Sorties;StockFin;Minimum\n";
-            stock.filter(a => stockFin(a) > 0).forEach(a => {
-                csv += `${a.codial};${a.fournisseur};${a.machine};${a.marque};${a.materiel};${a.reference};${a.denomination};${a.debut};${a.entrees};${a.sorties};${stockFin(a)};${a.minimum}\n`;
-            });
-            const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-            const lien = document.createElement("a");
-            lien.href = URL.createObjectURL(blob);
-            lien.download = `stock_positif_${immatActuelle || "fes_fcm"}.csv`;
-            lien.click();
-        };
-
+document.getElementById("btnExportCSVPositif").onclick = () => {
+  let csv = "Reference codial;Fournisseur;Machine;Marque;Materiel;Reference;Denomination;Debut;Entrees;Sorties;StockFin;Minimum\n";
+  stock.filter(a => stockFin(a) > 0).forEach(a => {
+    // Utilisation de a.refCodial au lieu de a.codial
+    csv += `${a.refCodial || ""};${a.fournisseur || ""};${a.machine || ""};${a.marque || ""};${a.materiel || ""};${a.reference || ""};${a.denomination || ""};${a.debut || 0};${a.entrees || 0};${a.sorties || 0};${stockFin(a)};${a.minimum || 0}\n`;
+  });
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const lien = document.createElement("a");
+  lien.href = URL.createObjectURL(blob);
+  lien.download = `stock_positif_${immatActuelle || "fes_fcm"}.csv`;
+  lien.click();
+};
         document.getElementById("btnDownloadModel").onclick = () => {
             const modele = "Reference codial;Fournisseur;Machine;Marque;Materiel;Reference;Denomination;Debut;Entrees;Sorties;StockFin;Minimum\n12345;Fournisseur Exemple;Tracteur;John Deere;Filtre;FD-001;Filtre hydraulique;10;0;0;10;2";
             const blob = new Blob(["\uFEFF" + modele], { type: "text/csv;charset=utf-8;" });
@@ -1192,14 +1202,15 @@ document.getElementById("btnSave").onclick = async () => {
            EXCEL (CHARGEMENT & EXPORT)
         =================================== */
 async function chargerXLSX() {
-    if (window.XLSX) return;
-    await new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://cloudflare.com";
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-    });
+  if (window.XLSX) return;
+  await new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    // Remplacement de cloudflare.com par le vrai fichier de la bibliothèque XLSX
+    script.src = "https://cloudflare.com";
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
 }
 
 
@@ -1219,22 +1230,35 @@ async function chargerXLSX() {
                 "Minimum": item.minimum || 0
             }));
         }
+async function exporterVersExcel(donnees, nomFichier) {
+  try {
+    await chargerXLSX();
+    if (typeof XLSX === "undefined") {
+      throw new Error("La bibliothèque Excel (XLSX) n'a pas pu être chargée. Vérifie ta connexion Internet.");
+    }
+    const ws = XLSX.utils.json_to_sheet(preparerDonneesExcel(donnees));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Stock");
+    XLSX.writeFile(wb, nomFichier);
+  } catch (erreur) {
+    console.error("Erreur Export Excel :", erreur);
+    alert("Impossible d'exporter en Excel : " + erreur.message);
+  }
+}
 
-        document.getElementById("btnExportExcel").onclick = async () => {
-            await chargerXLSX();
-            const ws = XLSX.utils.json_to_sheet(preparerDonneesExcel(stock));
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Stock");
-            XLSX.writeFile(wb, `stock_${immatActuelle || "fes_fcm"}.xlsx`);
-        };
+document.getElementById("btnExportExcel").onclick = () => {
+  const ws = XLSX.utils.json_to_sheet(preparerDonneesExcel(stock));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Stock");
+  XLSX.writeFile(wb, `stock_${immatActuelle || "fes_fcm"}.xlsx`);
+};
 
-        document.getElementById("btnExportExcelPositif").onclick = async () => {
-            await chargerXLSX();
-            const ws = XLSX.utils.json_to_sheet(preparerDonneesExcel(stock.filter(i => stockFin(i) > 0)));
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Stock Positif");
-            XLSX.writeFile(wb, `stock_positif_${immatActuelle || "fes_fcm"}.xlsx`);
-        };
+document.getElementById("btnExportExcelPositif").onclick = () => {
+  const ws = XLSX.utils.json_to_sheet(preparerDonneesExcel(stock.filter(i => stockFin(i) > 0)));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Stock Positif");
+  XLSX.writeFile(wb, `stock_positif_${immatActuelle || "fes_fcm"}.xlsx`);
+};
 
         /* ===================================
            IMPORT CSV / EXCEL
