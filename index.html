@@ -1499,10 +1499,13 @@ document.getElementById("btnExportExcelPositif").onclick = () => {
 =================================== */
 let articleSelectionneInv = null;
 let lignesInventaireEnCours = [];
+let timerRechercheInv = null;
+let estArticleHorsStock = false;
 
 function ouvrirInventaire() {
     lignesInventaireEnCours = [];
     articleSelectionneInv = null;
+    estArticleHorsStock = false;
     document.getElementById("invImmatTitre").textContent = immatActuelle || "";
     document.getElementById("inputRechercheInv").value = "";
     document.getElementById("ficheArticleTrouve").style.display = "none";
@@ -1516,11 +1519,15 @@ function ouvrirInventaire() {
 }
 
 function fermerInventaire() {
+    clearTimeout(timerRechercheInv);
     document.getElementById("modalInventaire").style.display = "none";
 }
 
 function rechercherArticleInventaire() {
-    const saisie = document.getElementById("inputRechercheInv").value.trim().toLowerCase();
+    clearTimeout(timerRechercheInv);
+    const saisieBrute = document.getElementById("inputRechercheInv").value.trim();
+    const saisie = saisieBrute.toLowerCase();
+    const saisieUpper = saisieBrute.toUpperCase();
     const fiche = document.getElementById("ficheArticleTrouve");
     const msgErreur = document.getElementById("msgArticleNonTrouve");
 
@@ -1528,6 +1535,7 @@ function rechercherArticleInventaire() {
         fiche.style.display = "none";
         msgErreur.style.display = "none";
         articleSelectionneInv = null;
+        estArticleHorsStock = false;
         return;
     }
 
@@ -1544,20 +1552,109 @@ function rechercherArticleInventaire() {
     }
 
     if (trouve) {
-        articleSelectionneInv = trouve;
-        document.getElementById("affCodial").textContent = trouve.refCodial || "-";
-        document.getElementById("affRefFournisseur").textContent = trouve.reference || "-";
-        document.getElementById("affFournisseur").textContent = trouve.fournisseur || "-";
-        document.getElementById("affDenomination").textContent = trouve.denomination || "-";
-        document.getElementById("inputQteComptee").value = "";
-        
-        fiche.style.display = "block";
-        msgErreur.style.display = "none";
+        estArticleHorsStock = false;
+        afficherFicheArticleInventaire(trouve, false);
+        return;
+    }
+
+    if (saisie.length >= 3) {
+        fiche.style.display = "none";
+        articleSelectionneInv = null;
+        msgErreur.style.color = "#005A9C";
+        msgErreur.textContent = "⏳ Absent du véhicule — Recherche dans le catalogue de référence...";
+        msgErreur.style.display = "block";
+
+        timerRechercheInv = setTimeout(async () => {
+            const articleCatalogue = await chercherDansCatalogueFirebase(saisieUpper);
+            if (document.getElementById("inputRechercheInv").value.trim().toUpperCase() !== saisieUpper) return;
+
+            if (articleCatalogue) {
+                estArticleHorsStock = true;
+                afficherFicheArticleInventaire(articleCatalogue, true);
+            } else {
+                articleSelectionneInv = null;
+                estArticleHorsStock = false;
+                fiche.style.display = "none";
+                msgErreur.style.color = "#d9534f";
+                msgErreur.textContent = "❌ Article inconnu (ni dans votre véhicule, ni dans le catalogue de référence).";
+                msgErreur.style.display = "block";
+            }
+        }, 350);
     } else {
         articleSelectionneInv = null;
+        estArticleHorsStock = false;
         fiche.style.display = "none";
+        msgErreur.style.color = "#d9534f";
+        msgErreur.textContent = "❌ Aucun article trouvé avec cette référence dans votre véhicule.";
         msgErreur.style.display = "block";
     }
+}
+
+async function chercherDansCatalogueFirebase(refSaisie) {
+    try {
+        const docId = refSaisie.replace(/\//g, "-");
+        const docSnap = await getDoc(doc(db, "catalogue", docId));
+        let articleTrouve = null;
+
+        if (docSnap.exists()) {
+            articleTrouve = docSnap.data();
+        } else {
+            const qRef = query(collection(db, "catalogue"), where("reference", "==", refSaisie));
+            const snapRef = await getDocs(qRef);
+
+            if (!snapRef.empty) {
+                articleTrouve = snapRef.docs.at(0).data();
+            } else {
+                const qCodial = query(collection(db, "catalogue"), where("refCodial", "==", refSaisie));
+                const snapCodial = await getDocs(qCodial);
+                if (!snapCodial.empty) {
+                    articleTrouve = snapCodial.docs.at(0).data();
+                }
+            }
+        }
+
+        if (!articleTrouve) return null;
+
+        return {
+            firebaseId: null,
+            reference: (articleTrouve.reference || refSaisie).toUpperCase(),
+            refCodial: articleTrouve.refCodial || articleTrouve.codial || "",
+            denomination: articleTrouve.intitule || articleTrouve.denomination || "",
+            fournisseur: articleTrouve.fournisseur || "",
+            marque: articleTrouve.marque || "",
+            machine: articleTrouve.machine || "",
+            materiel: articleTrouve.materiel || ""
+        };
+    } catch (error) {
+        console.error("Erreur recherche catalogue inventaire :", error);
+        return null;
+    }
+}
+
+function afficherFicheArticleInventaire(article, depuisCatalogue) {
+    articleSelectionneInv = article;
+    const fiche = document.getElementById("ficheArticleTrouve");
+    const msgErreur = document.getElementById("msgArticleNonTrouve");
+    const badgeRef = document.getElementById("badgeBaseReference");
+
+    document.getElementById("affCodial").textContent = article.refCodial || "-";
+    document.getElementById("affRefFournisseur").textContent = article.reference || "-";
+    document.getElementById("affFournisseur").textContent = article.fournisseur || "-";
+    document.getElementById("affDenomination").textContent = article.denomination || "-";
+    document.getElementById("inputQteComptee").value = "";
+
+    if (depuisCatalogue) {
+        fiche.style.background = "#fff3cd";
+        fiche.style.borderColor = "#ffc107";
+        if (badgeRef) badgeRef.style.display = "block";
+    } else {
+        fiche.style.background = "#e9f7ef";
+        fiche.style.borderColor = "#28a745";
+        if (badgeRef) badgeRef.style.display = "none";
+    }
+
+    fiche.style.display = "block";
+    msgErreur.style.display = "none";
 }
 
 function ajouterLigneInventaire() {
@@ -1569,15 +1666,20 @@ function ajouterLigneInventaire() {
     }
 
     const stockReel = Number(qteVal);
-    const stockTheorique = stockFin(articleSelectionneInv);
+    const stockTheorique = estArticleHorsStock ? 0 : stockFin(articleSelectionneInv);
+    const idLigne = articleSelectionneInv.firebaseId || ("CAT_" + (articleSelectionneInv.reference || articleSelectionneInv.refCodial));
 
-    const indexExistant = lignesInventaireEnCours.findIndex(l => l.firebaseId === articleSelectionneInv.firebaseId);
+    const indexExistant = lignesInventaireEnCours.findIndex(l => l.firebaseId === idLigne);
     const ligneData = {
-        firebaseId: articleSelectionneInv.firebaseId,
+        firebaseId: idLigne,
         refCodial: articleSelectionneInv.refCodial || "",
         reference: articleSelectionneInv.reference || "",
         fournisseur: articleSelectionneInv.fournisseur || "",
         denomination: articleSelectionneInv.denomination || "",
+        marque: articleSelectionneInv.marque || "",
+        machine: articleSelectionneInv.machine || "",
+        materiel: articleSelectionneInv.materiel || "",
+        horsStockVehicule: estArticleHorsStock,
         stockTheorique: stockTheorique,
         stockReel: stockReel,
         ecart: stockReel - stockTheorique
@@ -1592,10 +1694,10 @@ function ajouterLigneInventaire() {
     document.getElementById("inputRechercheInv").value = "";
     document.getElementById("ficheArticleTrouve").style.display = "none";
     articleSelectionneInv = null;
+    estArticleHorsStock = false;
     afficherLignesInventaire();
     document.getElementById("inputRechercheInv").focus();
 }
-
 function supprimerLigneInventaire(index) {
     lignesInventaireEnCours.splice(index, 1);
     afficherLignesInventaire();
@@ -1607,17 +1709,20 @@ function afficherLignesInventaire() {
     document.getElementById("compteurLignesInv").textContent = lignesInventaireEnCours.length;
 
     lignesInventaireEnCours.forEach((ligne, index) => {
+        const badgeNouveau = ligne.horsStockVehicule 
+            ? '<span style="background:#ffc107; color:#212529; font-size:11px; padding:2px 5px; border-radius:3px; font-weight:bold; margin-left:5px;">Catalogue</span>' 
+            : '';
+
         const tr = document.createElement("tr");
-        tr.innerHTML = `
-            <td style="padding:6px;">${ligne.refCodial}</td>
-            <td style="padding:6px;">${ligne.reference}</td>
-            <td style="padding:6px;">${ligne.fournisseur}</td>
-            <td style="padding:6px;">${ligne.denomination}</td>
-            <td style="padding:6px; text-align:center; font-weight:bold;">${ligne.stockReel}</td>
-            <td style="padding:6px; text-align:center;">
-                <button onclick="supprimerLigneInventaire(${index})" style="background:#dc3545; color:white; border:none; padding:3px 8px; border-radius:3px; cursor:pointer;">🗑️</button>
-            </td>
-        `;
+        tr.innerHTML = 
+            '<td style="padding:6px;">' + ligne.refCodial + '</td>' +
+            '<td style="padding:6px;">' + ligne.reference + '</td>' +
+            '<td style="padding:6px;">' + ligne.fournisseur + '</td>' +
+            '<td style="padding:6px;">' + ligne.denomination + badgeNouveau + '</td>' +
+            '<td style="padding:6px; text-align:center; font-weight:bold;">' + ligne.stockReel + '</td>' +
+            '<td style="padding:6px; text-align:center;">' +
+                '<button onclick="supprimerLigneInventaire(' + index + ')" style="background:#dc3545; color:white; border:none; padding:3px 8px; border-radius:3px; cursor:pointer;">🗑️</button>' +
+            '</td>';
         tbody.appendChild(tr);
     });
 }
@@ -1646,46 +1751,66 @@ async function validerEtSauvegarderInventaire() {
     try {
         await addDoc(collection(db, "inventaires"), rapport);
 
+        let stockModifie = false;
+        for (const ligne of lignesInventaireEnCours) {
+            if (ligne.horsStockVehicule && ligne.stockReel > 0) {
+                const articleData = creerIndexRecherche({
+                    firebaseId: null,
+                    refCodial: ligne.refCodial,
+                    fournisseur: ligne.fournisseur,
+                    machine: ligne.machine,
+                    marque: ligne.marque,
+                    materiel: ligne.materiel,
+                    reference: ligne.reference.toUpperCase(),
+                    denomination: ligne.denomination,
+                    debut: 0,
+                    entrees: ligne.stockReel,
+                    sorties: 0,
+                    minimum: 0,
+                    qteCommande: 0
+                });
+                stock.push(articleData);
+                await syncArticleFirebase(articleData);
+                stockModifie = true;
+            }
+        }
+        if (stockModifie && typeof afficher === "function") {
+            afficher();
+        }
+
         const conteneur = document.getElementById("contenuResultatTechnicien");
-        let html = `<h3>Résultat de votre inventaire (${rapport.nbArticlesComptes} article(s) contrôlé(s))</h3>`;
+        let html = '<h3>Résultat de votre inventaire (' + rapport.nbArticlesComptes + ' article(s) contrôlé(s))</h3>';
 
         if (erreurs.length === 0) {
-            html += `<p style="color:#28a745; font-weight:bold; font-size:16px;">🎉 Aucun écart ! Votre stock réel correspond parfaitement au stock théorique.</p>`;
+            html += '<p style="color:#28a745; font-weight:bold; font-size:16px;">🎉 Aucun écart ! Votre stock réel correspond parfaitement au stock théorique.</p>';
         } else {
-            html += `
-                <p style="color:#d9534f; font-weight:bold;">⚠️ ${erreurs.length} erreur(s) constatée(s) :</p>
-                <div style="width:100%; overflow-x:auto;">
-                    <table border="1" style="width:100%; min-width:0 !important; border-collapse:collapse; text-align:left; font-size:14px;">
-                        <thead style="background:#d9534f; color:white;">
-                            <tr>
-                                <th style="padding:8px;">Réf. Codial</th>
-                                <th style="padding:8px;">Réf. Fournisseur</th>
-                                <th style="padding:8px;">Dénomination</th>
-                                <th style="padding:8px; text-align:center;">Stock Théo.</th>
-                                <th style="padding:8px; text-align:center;">Stock Réel</th>
-                                <th style="padding:8px; text-align:center;">Écart</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
+            html += '<p style="color:#d9534f; font-weight:bold;">⚠️ ' + erreurs.length + ' erreur(s) constatée(s) :</p>';
+            html += '<div style="width:100%; overflow-x:auto;">';
+            html += '<table border="1" style="width:100%; min-width:0 !important; border-collapse:collapse; text-align:left; font-size:14px;">';
+            html += '<thead style="background:#d9534f; color:white;"><tr>';
+            html += '<th style="padding:8px;">Réf. Codial</th>';
+            html += '<th style="padding:8px;">Réf. Fournisseur</th>';
+            html += '<th style="padding:8px;">Dénomination</th>';
+            html += '<th style="padding:8px; text-align:center;">Stock Théo.</th>';
+            html += '<th style="padding:8px; text-align:center;">Stock Réel</th>';
+            html += '<th style="padding:8px; text-align:center;">Écart</th>';
+            html += '</tr></thead><tbody>';
 
             erreurs.forEach(err => {
                 const signe = err.ecart > 0 ? "+" : "";
-                html += `
-                    <tr>
-                        <td style="padding:6px;">${err.refCodial}</td>
-                        <td style="padding:6px;">${err.reference}</td>
-                        <td style="padding:6px;">${err.denomination}</td>
-                        <td style="padding:6px; text-align:center; font-weight:bold;">${err.stockTheorique}</td>
-                        <td style="padding:6px; text-align:center; font-weight:bold;">${err.stockReel}</td>
-                        <td style="padding:6px; text-align:center; color:${err.ecart < 0 ? 'red' : 'green'}; font-weight:bold;">
-                            ${signe}${err.ecart}
-                        </td>
-                    </tr>
-                `;
+                const infoHorsStock = err.horsStockVehicule ? ' <small style="color:#856404;">(Ajouté depuis catalogue)</small>' : '';
+                const couleurEcart = err.ecart < 0 ? 'red' : 'green';
+                html += '<tr>';
+                html += '<td style="padding:6px;">' + err.refCodial + '</td>';
+                html += '<td style="padding:6px;">' + err.reference + '</td>';
+                html += '<td style="padding:6px;">' + err.denomination + infoHorsStock + '</td>';
+                html += '<td style="padding:6px; text-align:center; font-weight:bold;">' + err.stockTheorique + '</td>';
+                html += '<td style="padding:6px; text-align:center; font-weight:bold;">' + err.stockReel + '</td>';
+                html += '<td style="padding:6px; text-align:center; color:' + couleurEcart + '; font-weight:bold;">' + signe + err.ecart + '</td>';
+                html += '</tr>';
             });
 
-            html += `</tbody></table></div>`;
+            html += '</tbody></table></div>';
         }
 
         conteneur.innerHTML = html;
@@ -1714,31 +1839,27 @@ function imprimerResultatInventaireTech() {
     const dateJour = new Date().toLocaleString('fr-FR');
 
     const fenetreImpression = window.open("", "", "width=900,height=650");
-    fenetreImpression.document.write(`
-        <html>
-            <head>
-                <title>Écarts d'inventaire - ${immat}</title>
-                <style>
-                    body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
-                    h2 { color: #005A9C; border-bottom: 2px solid #005A9C; padding-bottom: 8px; }
-                    table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
-                    th { background-color: #d9534f !important; color: white !important; padding: 8px; text-align: left; -webkit-print-color-adjust: exact; }
-                    td { border: 1px solid #ccc; padding: 7px; }
-                </style>
-            </head>
-            <body>
-                <h2>📋 Relevé d'écarts d'inventaire — Véhicule ${immat}</h2>
-                <p><strong>Date du contrôle :</strong> ${dateJour}</p>
-                ${contenu}
-                <p style="margin-top:30px; font-size:12px; color:#666;">Document généré pour vérification et rectification du stock véhicule.</p>
-            </body>
-        </html>
-    `);
+    fenetreImpression.document.write(
+        '<html><head><title>Écarts d\'inventaire - ' + immat + '</title>' +
+        '<style>' +
+        'body { font-family: Arial, sans-serif; padding: 20px; color: #333; }' +
+        'h2 { color: #005A9C; border-bottom: 2px solid #005A9C; padding-bottom: 8px; }' +
+        'table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }' +
+        'th { background-color: #d9534f !important; color: white !important; padding: 8px; text-align: left; -webkit-print-color-adjust: exact; }' +
+        'td { border: 1px solid #ccc; padding: 7px; }' +
+        '</style></head><body>' +
+        '<h2>📋 Relevé d\'écarts d\'inventaire — Véhicule ' + immat + '</h2>' +
+        '<p><strong>Date du contrôle :</strong> ' + dateJour + '</p>' +
+        contenu +
+        '<p style="margin-top:30px; font-size:12px; color:#666;">Document généré pour vérification et rectification du stock véhicule.</p>' +
+        '</body></html>'
+    );
     fenetreImpression.document.close();
     fenetreImpression.focus();
     fenetreImpression.print();
 }
 
+window.imprimerResultatInventaireTech = imprimerResultatInventaireTech;
 window.imprimerResultatInventaireTech = imprimerResultatInventaireTech;
 
     window.quitterApplication = function() {
