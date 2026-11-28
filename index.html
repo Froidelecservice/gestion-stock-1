@@ -348,6 +348,7 @@
         <button id="btnImport" class="btn" disabled style="display:none;">📥 Importer</button>
         <button id="btnDownloadModel" class="btn" disabled style="display:none;">⬇️ Modèle CSV</button>
         <button id="btnInventaire" class="btn" onclick="ouvrirInventaire()" style="background:#007bff;">📋 Faire un inventaire</button>
+        <button onclick="supprimerArticlesAZero()" style="background:#dc3545; color:white; border:none; padding:16px 24px; border-radius:6px; font-size:16px; font-weight:bold; cursor:pointer;">🧹 Nettoyer stock à 0</button>
         <button id="btnFullscreen" class="btn">⛶ Plein écran</button>
 <button onclick="quitterApplication()" style="background:#dc3545; color:white; border:none; padding:16px 24px; border-radius:6px; font-size:16px; font-weight:bold; cursor:pointer; display:inline-flex; align-items:center; gap:8px;">🚪 Quitter</button>
 
@@ -1076,6 +1077,51 @@ document.getElementById("btnSave").onclick = async () => {
             form.style.display = "block";
             form.scrollIntoView({ behavior: "smooth" });
         };
+window.supprimerArticlesAZero = async function() {
+    const articlesAZero = stock.filter(item => Number(stockFin(item)) === 0);
+
+    if (articlesAZero.length === 0) {
+        alert("✅ Aucun article à 0 dans le stock de votre véhicule.");
+        return;
+    }
+
+    const confirmation = confirm(
+        "⚠️ ATTENTION : Vous êtes sur le point de supprimer définitivement " + 
+        articlesAZero.length + " article(s) ayant un stock à 0 dans votre véhicule.\n\n" +
+        "Voulez-vous vraiment continuer ?"
+    );
+
+    if (!confirmation) return;
+
+    // 1. Mise à jour immédiate de la liste locale et de l'affichage
+    stock = stock.filter(item => Number(stockFin(item)) !== 0);
+    if (typeof sauvegarderLocal === "function") sauvegarderLocal();
+    if (typeof afficher === "function") afficher();
+
+    // 2. Suppression sur Firebase dans la collection "stocks"
+    if (immatActuelle) {
+        try {
+            if (typeof setStatus === "function") {
+                setStatus("⏳ Suppression de " + articlesAZero.length + " article(s) sur Firebase...", "#ff9800");
+            }
+
+            for (const item of articlesAZero) {
+                if (item && item.firebaseId) {
+                    await deleteDoc(doc(db, "stocks", item.firebaseId));
+                }
+            }
+
+            if (typeof setStatus === "function") {
+                setStatus("✅ " + articlesAZero.length + " article(s) à 0 supprimé(s)", "#28a745");
+            }
+        } catch (e) {
+            console.error("Erreur suppression Firebase :", e);
+            if (typeof setStatus === "function") {
+                setStatus("⚠️ Erreur suppression réseau", "#d9534f");
+            }
+        }
+    }
+};
 
         window.supprimer = async function(index) {
             if (!confirm("Supprimer cet article ?")) return;
